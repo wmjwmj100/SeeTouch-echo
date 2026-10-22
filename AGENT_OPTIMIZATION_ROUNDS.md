@@ -137,3 +137,42 @@ This is a diagnostic-entry limitation, not a model success.
 - The independent E2E checker was not weakened; the Chrome app-info check was
   corrected to recognize both `AppInfoDashboardActivity` and the SPA-hosted
   app-info page by its actual controls.
+
+## Cross-project corroboration
+
+A separate source audit pinned these MIT/Apache-2.0 projects (clones outside the
+working tree):
+
+| Project | Commit | License | Matched mechanism |
+|---|---|---|---|
+| `google-research/android_world` | `f8e78c0ab0bb` | Apache-2.0 | element extraction / stable-state polling / closed `JSONAction` vocabulary (`android_world/env/representation_utils.py:136`, `interface.py:243`, `json_action.py:38`) |
+| `droidrun/droidrun` | `301856138c6e` | MIT | occlusion-aware tap points, malformed-call limit, focus-then-type (`mobilerun/tools/ui/state.py:72,113`, `geometry.py:13,43`, `agent/fast_agent/fast_agent.py:63-91`, `agent/utils/actions.py:396`) |
+| `X-PLUG/MobileAgent` | `11cea575561f` | MIT | A/B/C action reflection and keyboard pre/post state (`Mobile-Agent-E/MobileAgentE/agents.py:570,643`, `inference_agent_E.py:706`) |
+| `TencentQQGYLab/AppAgent` | `2c1900422caf` | MIT | flat indexed elements, dedup by center distance, grid fallback (`scripts/and_controller.py:56`, `scripts/task_executor.py:257`) |
+| `openatx/uiautomator2` | `bad641e7a861` | MIT | focus/IME-aware Unicode input (`uiautomator2/_input.py:49,107,123`) |
+| `lgy0404/MemGUI-Bench` | `3fb01b6cc0d1` | MIT | model-driven history folding and memory CRUD (`src/mobile_world/agents/implementations/memgui_agent.py:65,323`) |
+
+The implemented rounds align with these mechanisms:
+
+- R1/R3 use the same accessibility-element idea as AndroidWorld/AppAgent; our
+  implementation is independent Python/Kotlin on SeeTouch's device API.
+- R2's no-change streak is the free, hash-based subset of Mobile-Agent-E's
+  A/B/C reflection; we deliberately avoid an extra VLM call per step.
+- R4's 2% coordinate quantization is the same class of fix as droidrun's
+  pixel-tolerant tap and valid-index errors.
+- R5's parse feedback matches droidrun's named malformed-call handling, but
+  SeeTouch currently feeds the rejected output back once rather than adding a
+  full 3-attempt inner loop.
+- R6's explicit terminal status is the same separation of model text and
+  harness outcome seen in nanoMuse's `Outcome`.
+
+### Deliberately deferred
+
+- **Post-action stable-state polling** (AndroidWorld `_get_stable_state`): high
+  value, but it changes action latency and needs a separate flake benchmark.
+- **A dedicated companion IME** (uiautomator2): robust for Chinese/Unicode, but
+  changing the user's default IME is an invasive product decision.
+- **Four-agent decomposition / per-step reflection VLM** (Mobile-Agent-E): cost
+  and latency are too high for SeeTouch's loop.
+- **Model-driven history folding** (MemGUI): promising for tasks beyond ~30
+  steps, but it changes the action protocol and needs its own regression suite.
