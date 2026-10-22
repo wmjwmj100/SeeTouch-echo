@@ -126,6 +126,33 @@ class NativeAndroidController:
     def learn_app_from_visual(self, request: str, package: str) -> None:
         self._launcher.learn_from_visual(request, package)
 
+    def ui_context(self, limit: int = 90, max_chars: int = 6000) -> str:
+        try:
+            rows = [str(row) for row in self._b.uiNodes()]
+        except Exception as exc:
+            logger.warning("uiNodes failed: %s", exc)
+            return ""
+        width, height = self.screen_size()
+        lines: list[str] = []
+        for row in rows[:limit]:
+            parts = row.split("\t")
+            if len(parts) != 9:
+                continue
+            text, desc, resource, klass, left, top, right, bottom, flags = parts
+            try:
+                x1, y1, x2, y2 = int(left), int(top), int(right), int(bottom)
+            except ValueError:
+                continue
+            if x2 <= x1 or y2 <= y1:
+                continue
+            cx = round((x1 + x2) / 2 / width * 1000)
+            cy = round((y1 + y2) / 2 / height * 1000)
+            lines.append(
+                f'- text="{text}" desc="{desc}" id="{resource}" class="{klass}" '
+                f"center=[{cx},{cy}] bounds=[{x1},{y1},{x2},{y2}] flags={flags}"
+            )
+        return "\n".join(lines)[:max_chars]
+
     # ------------------------- 内部 helpers -------------------------
 
     def _installed_packages(self) -> list[str]:

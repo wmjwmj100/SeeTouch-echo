@@ -157,12 +157,14 @@ class OpenAIReasoner:
             raise VLMAPIError(str(exc)) from exc
 
         summary = extract_summary_fields(raw_output)
+        parse_error = False
         try:
             action = parse_model_output(raw_output, screenshot.size)
         except ParseError:
             logger.warning("OpenAI model output could not be parsed; waiting before retry")
             action = Action(type=ACTION_WAIT, parameters={})
             summary["action_summary"] = "模型输出无法解析，等待后重试"
+            parse_error = True
         return ActionOutput(
             action=action,
             raw_output=raw_output,
@@ -171,4 +173,5 @@ class OpenAIReasoner:
             usage=usage,
             prompt_text=f"{prompt}\n\n[截图]",
             reasoning_content=reasoning if isinstance(reasoning, str) else "",
+            parse_error=parse_error,
         )

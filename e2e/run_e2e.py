@@ -87,7 +87,8 @@ def bluetooth_enabled(serial: str) -> bool:
 
 def settings_home(serial: str) -> tuple[bool, str]:
     state = foreground(serial)
-    ok = state["package"] == SETTINGS_PACKAGE
+    activity = state["activity"] or ""
+    ok = state["package"] == SETTINGS_PACKAGE and "SubSettings" not in activity
     return ok, f"foreground={state['package']}/{state['activity']}"
 
 
@@ -141,6 +142,58 @@ def disable_bluetooth(serial: str) -> None:
     time.sleep(2.0)
 
 
+def night_mode_enabled(serial: str) -> bool:
+    return "yes" in _adb(serial, "shell", "cmd", "uimode", "night").lower()
+
+
+def dark_theme_on_and_home(serial: str) -> tuple[bool, str]:
+    state = foreground(serial)
+    enabled = night_mode_enabled(serial)
+    home_ok, _ = settings_home(serial)
+    return enabled and home_ok, (
+        f"night_mode={enabled} foreground={state['package']}/{state['activity']} "
+        f"settings_home={home_ok}"
+    )
+
+
+def prepare_light_theme(serial: str) -> None:
+    _adb(serial, "shell", "cmd", "uimode", "night", "no")
+    time.sleep(1.5)
+
+
+def auto_time_off_and_home(serial: str) -> tuple[bool, str]:
+    state = foreground(serial)
+    auto_time = get_setting(serial, "global", "auto_time")
+    home_ok, _ = settings_home(serial)
+    return auto_time == "0" and home_ok, (
+        f"auto_time={auto_time} foreground={state['package']}/{state['activity']} "
+        f"settings_home={home_ok}"
+    )
+
+
+def prepare_auto_time_on(serial: str) -> None:
+    _adb(serial, "shell", "settings", "put", "global", "auto_time", "1")
+    time.sleep(1.0)
+
+
+def chrome_app_info(serial: str) -> tuple[bool, str]:
+    state = foreground(serial)
+    top = _adb(serial, "shell", "dumpsys", "activity", "top", timeout=60)
+    text = ui_text(serial)
+    on_app_info = any(
+        marker in top for marker in ("AppInfoDashboardActivity", "AppInfoDashboardFragment")
+    ) or "app_info" in top.lower()
+    on_app_info = on_app_info or (
+        "Chrome" in text
+        and any(marker in text for marker in ("强行停止", "存储和缓存", "停用"))
+    )
+    target = "com.android.chrome" in text or "com.android.chrome" in top or "Chrome" in text
+    return state["package"] == SETTINGS_PACKAGE and on_app_info and target, (
+        f"foreground={state['package']}/{state['activity']} "
+        f"app_info_activity={on_app_info} target_chrome={target}"
+    )
+
+
 CASES = (
     Case("open_settings", "打开手机设置。", settings_home),
     Case("about_phone", "进入设置，找到关于手机页面。", about_phone),
@@ -149,6 +202,23 @@ CASES = (
         "打开系统设置，找到蓝牙相关设置并打开蓝牙，然后返回设置首页。",
         bluetooth_on_and_back_home,
         disable_bluetooth,
+    ),
+    Case(
+        "dark_theme",
+        "打开设置，进入显示设置，开启深色主题，然后返回设置首页。",
+        dark_theme_on_and_home,
+        prepare_light_theme,
+    ),
+    Case(
+        "auto_time_off",
+        "打开设置，进入日期和时间，关闭“自动设置时间”，然后返回设置首页。",
+        auto_time_off_and_home,
+        prepare_auto_time_on,
+    ),
+    Case(
+        "chrome_app_info",
+        "打开设置，进入应用，找到 Chrome 并打开它的应用信息页面。",
+        chrome_app_info,
     ),
 )
 

@@ -147,6 +147,7 @@ class GeminiReasoner:
                 action_summary="模型输出无法解析,降级为等待后重试",
                 usage=usage,
                 prompt_text=prompt_text,
+                parse_error=True,
             )
 
         return ActionOutput(

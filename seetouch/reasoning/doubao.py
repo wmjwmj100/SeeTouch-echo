@@ -115,6 +115,7 @@ class DoubaoReasoner:
                 usage=usage,
                 prompt_text=prompt_text,
                 reasoning_content=reasoning_content,
+                parse_error=True,
             )
 
         return ActionOutput(
@@ -229,4 +230,3 @@ class DoubaoReasoner:
                         elif item.get("type") == "image_url":
                             parts.append("[截图]")
         return "\n".join(parts)
-

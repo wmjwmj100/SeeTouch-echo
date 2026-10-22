@@ -146,8 +146,16 @@ class Session:
         reasoning_time: float = 0.0,
         execution_time: float = 0.0,
         usage_already_counted: bool = False,
+        ui_context: str = "",
+        screen_unchanged_streak: int = 1,
     ) -> StepRecord:
         notes = list(notes or [])
+        if action_out.parse_error:
+            snippet = " ".join((action_out.raw_output or "").split())[:160]
+            notes.append(
+                "上一次输出不是合法动作 JSON："
+                f"{snippet}；下一步只输出一个 JSON 对象，不要解释。"
+            )
         if not self.history and self.used_memory_ids:
             notes.append("本次匹配记忆：" + ", ".join(self.used_memory_ids))
         record = StepRecord(
@@ -167,6 +175,8 @@ class Session:
             prompt_text=action_out.prompt_text,
             reasoning_time=reasoning_time,
             execution_time=execution_time,
+            ui_context=ui_context,
+            screen_unchanged_streak=screen_unchanged_streak,
         )
         return record
 
@@ -189,12 +199,11 @@ class Session:
         """末尾连续多少步动作完全相同(action.type + parameters)。"""
         if not self.history:
             return 0
-        import json as _json
         last = self.history[-1]
-        last_key = (last.action.type, _json.dumps(last.action.parameters, sort_keys=True))
+        last_key = _action_key(last.action)
         count = 0
         for rec in reversed(self.history):
-            key = (rec.action.type, _json.dumps(rec.action.parameters, sort_keys=True))
+            key = _action_key(rec.action)
             if key == last_key:
                 count += 1
             else:
@@ -266,6 +275,8 @@ class Session:
         prompt_text: str = "",
         reasoning_time: float = 0.0,
         execution_time: float = 0.0,
+        ui_context: str = "",
+        screen_unchanged_streak: int = 1,
     ) -> None:
         line: dict[str, Any] = {
             "task_id": self.task.task_id,
@@ -283,6 +294,8 @@ class Session:
             "prompt_text": prompt_text,
             "reasoning_time": reasoning_time,
             "execution_time": execution_time,
+            "ui_context": ui_context,
+            "screen_unchanged_streak": screen_unchanged_streak,
             "interactions": self._pending_interactions[:],
         }
         try:
@@ -291,3 +304,20 @@ class Session:
             self._pending_interactions.clear()
         except Exception as exc:
             logger.warning("append trace failed: %s", exc)
+
+
+def _quantize(value: Any, step: int = 20) -> int:
+    return int(value) // step * step
+
+
+def _action_key(action: Action) -> tuple[str, str]:
+    params = dict(action.parameters)
+    if action.type == "CLICK" and isinstance(params.get("point"), (list, tuple)):
+        x, y = params["point"][:2]
+        params["point"] = [_quantize(x), _quantize(y)]
+    elif action.type == "SCROLL":
+        for key in ("start_point", "end_point"):
+            point = params.get(key)
+            if isinstance(point, (list, tuple)) and len(point) >= 2:
+                params[key] = [_quantize(point[0]), _quantize(point[1])]
+    return action.type, json.dumps(params, sort_keys=True, ensure_ascii=False)

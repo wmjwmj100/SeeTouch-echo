@@ -79,6 +79,9 @@ object DeviceBridge {
     @JvmStatic
     fun currentPackage(): String? = service().currentPackage()
 
+    @JvmStatic
+    fun uiNodes(): Array<String> = service().uiNodes()
+
     /** 已安装且可启动(有 launcher 入口)的包名列表,供 OPEN fallback 匹配。
      *  返回数组而非 List:Chaquopy 对 java 数组有原生迭代支持。 */
     @JvmStatic

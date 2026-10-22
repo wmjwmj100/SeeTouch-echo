@@ -40,3 +40,15 @@ def test_bluetooth_checker_requires_toggle_and_home(monkeypatch):
         "package": "com.android.settings", "activity": ".SubSettings",
     })
     assert not run_e2e.bluetooth_on_and_back_home("emulator-5554")[0]
+
+
+def test_chrome_app_info_accepts_spa_hosted_page(monkeypatch):
+    monkeypatch.setattr(run_e2e, "_adb", lambda *args, **kwargs: "")
+    monkeypatch.setattr(run_e2e, "foreground", lambda serial: {
+        "package": "com.android.settings", "activity": ".spa.SpaActivity",
+    })
+    monkeypatch.setattr(
+        run_e2e, "ui_text",
+        lambda serial: 'text="Chrome" text="强行停止" text="存储和缓存"',
+    )
+    assert run_e2e.chrome_app_info("emulator-5554")[0]

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Tuple
 
@@ -131,6 +132,61 @@ class AndroidController:
         """转给 AppLauncher 写入 learned cache。"""
         self._launcher.learn_from_visual(request, package)
 
+    def ui_context(self, limit: int = 90, max_chars: int = 6000) -> str:
+        """Compact accessibility tree for model grounding (PC uiautomator2 path)."""
+        import xml.etree.ElementTree as ET
+
+        try:
+            root = ET.fromstring(self._d.dump_hierarchy(compressed=True))
+        except Exception as exc:
+            logger.warning("dump_hierarchy failed: %s", exc)
+            return ""
+        width, height = self.screen_size()
+        bounds_re = re.compile(r"\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]")
+        lines: list[str] = []
+        seen: set[str] = set()
+        for node in root.iter("node"):
+            if len(lines) >= limit:
+                break
+            if node.get("package") == "com.android.systemui":
+                continue
+            text = _clean(node.get("text"))
+            desc = _clean(node.get("content-desc"))
+            resource = node.get("resource-id") or ""
+            clickable = node.get("clickable") == "true"
+            scrollable = node.get("scrollable") == "true"
+            editable = node.get("class", "").endswith("EditText") or node.get("editable") == "true"
+            if not (text or desc or clickable or scrollable or editable):
+                continue
+            match = bounds_re.search(node.get("bounds", ""))
+            if not match:
+                continue
+            x1, y1, x2, y2 = map(int, match.groups())
+            if x2 <= x1 or y2 <= y1:
+                continue
+            cx = round((x1 + x2) / 2 / width * 1000)
+            cy = round((y1 + y2) / 2 / height * 1000)
+            flags = []
+            if clickable:
+                flags.append("click")
+            if scrollable:
+                flags.append("scroll")
+            if editable:
+                flags.append("edit")
+            if node.get("focused") == "true":
+                flags.append("focus")
+            line = (
+                f'- text="{text}" desc="{desc}" id="{resource.rsplit("/", 1)[-1]}" '
+                f'class="{node.get("class", "").rsplit(".", 1)[-1]}" '
+                f'center=[{cx},{cy}] bounds=[{x1},{y1},{x2},{y2}] '
+                f'flags={",".join(flags) or "-"}'
+            )
+            if line in seen:
+                continue
+            seen.add(line)
+            lines.append(line)
+        return "\n".join(lines)[:max_chars]
+
     # ------------------------- 内部 helpers -------------------------
 
     def _safe_app_list(self) -> list[str]:
@@ -139,3 +195,8 @@ class AndroidController:
         except Exception as exc:
             logger.warning("app_list failed: %s", exc)
             return []
+
+
+def _clean(value: str | None, limit: int = 80) -> str:
+    text = " ".join((value or "").split()).replace('"', "'")
+    return text[:limit]

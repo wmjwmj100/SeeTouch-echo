@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import logging
+import hashlib
 import time
 from pathlib import Path
 from typing import Any
@@ -120,6 +121,9 @@ class Runner:
         self._visual_baseline_app: str | None = None
         self._open_miss_count = 0
         self._deadline: float | None = None
+        self._last_screen_signature: str | None = None
+        self._no_change_streak = 0
+        self._completion_rejections = 0
 
     # ======================== 公开 API ========================
 
@@ -146,6 +150,9 @@ class Runner:
         self._pending_visual_request = None
         self._visual_baseline_app = None
         self._open_miss_count = 0
+        self._last_screen_signature = None
+        self._no_change_streak = 0
+        self._completion_rejections = 0
         self._deadline = (
             time.monotonic() + self.task_timeout_seconds
             if self.task_timeout_seconds is not None else None
@@ -232,6 +239,8 @@ class Runner:
         self._checkpoint(revision)
         screenshot = downscale(screenshot)
         screenshot_path = session.save_screenshot(step, screenshot, attempt)
+        ui_context = self._read_ui_context()
+        unchanged = self._observe_screen_change(screenshot, ui_context)
 
         self._emit(STEP_SCREENSHOT_TAKEN, step=step, screenshot=screenshot)
 
@@ -248,6 +257,19 @@ class Runner:
                     pass
             if self._interaction_context:
                 instruction += "\n\n用户补充（以用户回答为准）：\n" + "\n".join(self._interaction_context)
+            remaining = max(0, task.max_steps - step + 1)
+            instruction += f"\n\n任务进度：已完成 {step - 1} 步，剩余最多 {remaining} 步。"
+            if ui_context:
+                instruction += (
+                    "\n\n系统提供的当前界面控件（坐标是 0-1000 归一化中心；"
+                    "点击优先使用对应控件的 center）：\n" + ui_context
+                )
+            if unchanged >= 2:
+                last_type = session.history[-1].action.type if session.history else "上一步"
+                instruction += (
+                    f"\n\n注意：当前界面与之前 {unchanged} 步相同，上一步动作很可能没有生效。"
+                    f"上一步是 {last_type}。不要重复相同操作；改用其他控件、滚动、返回或等待。"
+                )
             out = self._predict_with_retry(instruction, screenshot, session, step, revision)
         except VLMAPIError as exc:
             self._checkpoint(revision)
@@ -263,6 +285,8 @@ class Runner:
             session.record_step(
                 step, out, usage_already_counted=True, execution_success=False, notes=[reason],
                 screenshot_path=screenshot_path, reasoning_time=reasoning_time,
+                ui_context=ui_context,
+                screen_unchanged_streak=unchanged,
             )
             session.mark_aborted(reason)
             self._finished = True
@@ -291,6 +315,8 @@ class Runner:
                 step, out, usage_already_counted=True, execution_success=None,
                 notes=["task_timeout_before_action"], screenshot_path=screenshot_path,
                 reasoning_time=reasoning_time,
+                ui_context=ui_context,
+                screen_unchanged_streak=unchanged,
             )
             return self._timeout_result(step, out, screenshot, screenshot_path)
         self._emit(
@@ -334,7 +360,8 @@ class Runner:
                     interaction_notes.append(f"问题：{out.action.parameters['question']}\n回答：{answer}")
             session.record_step(step, out, usage_already_counted=True, execution_success=None,
                                 screenshot_path=screenshot_path, reasoning_time=reasoning_time,
-                                notes=interaction_notes)
+                                notes=interaction_notes, ui_context=ui_context,
+                                screen_unchanged_streak=unchanged)
             if step >= task.max_steps:
                 session.mark_aborted("max_steps_reached")
                 self._finished = True
@@ -346,6 +373,50 @@ class Runner:
         # 3. COMPLETE 不需要 guard,也不执行任何设备动作
         if out.action.type in (ACTION_COMPLETE, ACTION_ANSWER):
             failed = out.action.parameters.get("status") == "failed"
+            if (
+                out.action.type == ACTION_COMPLETE
+                and not failed
+                and self._premature_completion(task, session)
+            ):
+                self._completion_rejections += 1
+                note = (
+                    "拒绝过早完成：该任务包含多个步骤，但还没有执行任何目标界面的"
+                    "点击/输入/滚动/返回操作。请继续完成剩余步骤。"
+                )
+                if self._completion_rejections >= 2:
+                    session.record_step(
+                        step, out, usage_already_counted=True, execution_success=False,
+                        notes=[note, "repeated_premature_completion"],
+                        screenshot_path=screenshot_path, reasoning_time=reasoning_time,
+                        ui_context=ui_context, screen_unchanged_streak=unchanged,
+                    )
+                    session.mark_aborted("premature_completion")
+                    self._finished = True
+                    return StepResult(
+                        step=step, screenshot=screenshot, screenshot_path=screenshot_path,
+                        prompt_text=out.prompt_text, raw_output=out.raw_output,
+                        reasoning_content=out.reasoning_content, action=out.action,
+                        screen_summary=out.screen_summary, action_summary=out.action_summary,
+                        execution_success=False, notes=[note], usage=out.usage,
+                        reasoning_time=reasoning_time, execution_time=0.0,
+                        terminal=True, terminal_reason="premature_completion",
+                    )
+                session.record_interaction({"type": "premature_completion", "step": step})
+                session.record_step(
+                    step, out, usage_already_counted=True, execution_success=None,
+                    notes=[note], screenshot_path=screenshot_path,
+                    reasoning_time=reasoning_time, ui_context=ui_context,
+                    screen_unchanged_streak=unchanged,
+                )
+                return StepResult(
+                    step=step, screenshot=screenshot, screenshot_path=screenshot_path,
+                    prompt_text=out.prompt_text, raw_output=out.raw_output,
+                    reasoning_content=out.reasoning_content, action=out.action,
+                    screen_summary=out.screen_summary,
+                    action_summary="拒绝过早完成，继续执行", execution_success=None,
+                    notes=[note], usage=out.usage, reasoning_time=reasoning_time,
+                    execution_time=0.0, terminal=False,
+                )
             terminal_reason = (out.action.parameters.get("reason") or "model_unable") if failed else "completed"
             if failed and terminal_reason not in ("model_unable", "app_not_installed", "blacklisted_app"):
                 terminal_reason = "model_unable"
@@ -353,6 +424,8 @@ class Runner:
                 step, out, usage_already_counted=True, execution_success=not failed,
                 screenshot_path=screenshot_path,
                 reasoning_time=reasoning_time, execution_time=0.0,
+                ui_context=ui_context,
+                screen_unchanged_streak=unchanged,
             )
             if failed:
                 session.mark_aborted(str(terminal_reason))
@@ -385,6 +458,8 @@ class Runner:
                     step, out, usage_already_counted=True, execution_success=None, notes=notes,
                     screenshot_path=screenshot_path,
                     reasoning_time=reasoning_time, execution_time=0.0,
+                    ui_context=ui_context,
+                    screen_unchanged_streak=unchanged,
                 )
                 session.mark_aborted("user_denied")
                 self._finished = True
@@ -462,10 +537,14 @@ class Runner:
                 self._visual_baseline_app = None
 
         # 7. 记录
+        if unchanged >= 2:
+            notes.append(f"界面已连续 {unchanged} 步未变化")
         session.record_step(
             step, out, usage_already_counted=True, execution_success=success, notes=notes,
             screenshot_path=screenshot_path,
             reasoning_time=reasoning_time, execution_time=execution_time,
+            ui_context=ui_context,
+            screen_unchanged_streak=unchanged,
         )
 
         # 8. 检查终止条件
@@ -658,6 +737,38 @@ class Runner:
             logger.warning("device.current_app() failed: %s", exc)
             return None
 
+    def _read_ui_context(self) -> str:
+        read = getattr(self.device, "ui_context", None)
+        if not callable(read):
+            return ""
+        try:
+            value = read()
+            return value if isinstance(value, str) else ""
+        except Exception as exc:
+            logger.warning("ui_context failed: %s", exc)
+            return ""
+
+    def _premature_completion(self, task, session) -> bool:
+        if not _instruction_is_multi_step(task.instruction):
+            return False
+        meaningful = {"CLICK", "TYPE", "SCROLL", "BACK"}
+        return not any(record.action.type in meaningful for record in session.history)
+
+    def _observe_screen_change(self, screenshot, ui_context: str) -> int:
+        if ui_context:
+            payload = ui_context.encode("utf-8")
+        else:
+            width, height = screenshot.size
+            body = screenshot.convert("L").crop((0, int(height * 0.1), width, height))
+            payload = body.resize((32, 32)).tobytes()
+        signature = hashlib.sha1(payload).hexdigest()
+        if signature == self._last_screen_signature:
+            self._no_change_streak += 1
+        else:
+            self._no_change_streak = 1
+            self._last_screen_signature = signature
+        return self._no_change_streak
+
     def _execute(self, action: Action) -> None:
         if action.type == ACTION_CLICK:
             x, y = action.parameters["point"]
@@ -685,3 +796,11 @@ class Runner:
 
 class InteractionUnavailable(Exception):
     """A noninteractive host must stop safely rather than guess or claim completion."""
+
+
+def _instruction_is_multi_step(instruction: str) -> bool:
+    text = instruction or ""
+    markers = ("然后", "再", "并", "进入", "开启", "关闭", "返回", "找到")
+    return any(marker in text for marker in markers) or sum(
+        text.count(verb) for verb in ("打开", "点击", "输入", "开启", "关闭")
+    ) >= 2

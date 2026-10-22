@@ -117,4 +117,4 @@ class ActionOutput:
     usage: dict[str, Any] | None = None
     prompt_text: str = ""
     reasoning_content: str = ""
-
+    parse_error: bool = False
