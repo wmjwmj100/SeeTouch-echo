@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 from collections.abc import Callable
 from .control import ExecutionControl, ReobserveRequired, RunStopped
-from .outcome import api_failure_code
+from .outcome import RETRYABLE_API_ERRORS, api_failure_code
 
 from .event_bus import (
     EventBus,
@@ -77,13 +77,16 @@ class Runner:
         guard: Guard | None = None,
         runs_dir: Path | str = "runs",
         max_consecutive_failures: int = 2,
-        max_consecutive_identical_actions: int = 3,
+        max_consecutive_identical_actions: int = 5,
         max_open_misses: int = 3,
         event_bus: EventBus | None = None,
         action_settle_seconds: float = 1.0,
         control: ExecutionControl | None = None,
         interaction: Callable[[dict], dict] | None = None,
         memory_store: MemoryStore | None = None,
+        task_timeout_seconds: float | None = None,
+        max_model_retries: int = 1,
+        model_retry_backoff_seconds: float = 2.0,
     ):
         self.device = device
         self.reasoner = reasoner
@@ -97,6 +100,15 @@ class Runner:
         self.control = control
         self.interaction = interaction
         self.memory_store = memory_store
+        if task_timeout_seconds is not None and task_timeout_seconds <= 0:
+            raise ValueError("task_timeout_seconds must be positive or None")
+        if max_model_retries < 0:
+            raise ValueError("max_model_retries must be >= 0")
+        if model_retry_backoff_seconds < 0:
+            raise ValueError("model_retry_backoff_seconds must be >= 0")
+        self.task_timeout_seconds = task_timeout_seconds
+        self.max_model_retries = max_model_retries
+        self.model_retry_backoff_seconds = model_retry_backoff_seconds
         self._interaction_context: list[str] = []
 
         # 运行状态(start() 初始化,step() 推进)
@@ -107,13 +119,25 @@ class Runner:
         self._pending_visual_request: str | None = None
         self._visual_baseline_app: str | None = None
         self._open_miss_count = 0
+        self._deadline: float | None = None
 
     # ======================== 公开 API ========================
 
     def start(self, task: Task) -> None:
         """初始化一次任务执行。后续通过 step() 逐步推进。"""
         self._task = task
-        self._session = Session(task, base_dir=self.runs_dir)
+        config = getattr(self.reasoner, "_config", None)
+        model_id = getattr(config, "model_id", None)
+        if not isinstance(model_id, str):
+            model_id = None
+        self._session = Session(
+            task,
+            base_dir=self.runs_dir,
+            metadata={
+                "reasoner": type(self.reasoner).__name__,
+                "model_id": model_id,
+            },
+        )
         self._interaction_context = []
         if self.control:
             self.control.event_sink = self._record_control_event
@@ -122,6 +146,10 @@ class Runner:
         self._pending_visual_request = None
         self._visual_baseline_app = None
         self._open_miss_count = 0
+        self._deadline = (
+            time.monotonic() + self.task_timeout_seconds
+            if self.task_timeout_seconds is not None else None
+        )
         if self.memory_store:
             try:
                 memories = self.memory_store.retrieve(task.instruction)
@@ -149,6 +177,8 @@ class Runner:
         if self._finished:
             raise RuntimeError("task already finished, call start() to begin a new task")
 
+        if self._deadline is not None and time.monotonic() >= self._deadline:
+            return self._timeout_result(self._current_step + 1)
         self._current_step += 1
         step = self._current_step
         attempt = 0
@@ -218,7 +248,7 @@ class Runner:
                     pass
             if self._interaction_context:
                 instruction += "\n\n用户补充（以用户回答为准）：\n" + "\n".join(self._interaction_context)
-            out = self.reasoner.predict(instruction, screenshot, session.history)
+            out = self._predict_with_retry(instruction, screenshot, session, step, revision)
         except VLMAPIError as exc:
             self._checkpoint(revision)
             from .action import ActionOutput
@@ -256,6 +286,13 @@ class Runner:
                 "screenshot": str(screenshot_path), "executed": False,
             })
         self._checkpoint(revision)
+        if self._deadline is not None and time.monotonic() >= self._deadline:
+            session.record_step(
+                step, out, usage_already_counted=True, execution_success=None,
+                notes=["task_timeout_before_action"], screenshot_path=screenshot_path,
+                reasoning_time=reasoning_time,
+            )
+            return self._timeout_result(step, out, screenshot, screenshot_path)
         self._emit(
             STEP_REASONING_DONE,
             step=step,
@@ -500,6 +537,51 @@ class Runner:
     def _record_control_event(self, event: dict) -> None:
         assert self._session is not None
         self._session.record_interaction({"step": self._current_step, **event})
+
+    def _predict_with_retry(self, instruction, screenshot, session, step, revision):
+        attempts = self.max_model_retries + 1
+        for attempt in range(attempts):
+            try:
+                return self.reasoner.predict(instruction, screenshot, session.history)
+            except VLMAPIError as exc:
+                code = api_failure_code(exc)
+                if code not in RETRYABLE_API_ERRORS or attempt + 1 >= attempts:
+                    raise
+                delay = self.model_retry_backoff_seconds * (2 ** attempt)
+                session.record_interaction({
+                    "type": "model_retry", "step": step, "attempt": attempt + 1,
+                    "error_code": code, "delay_seconds": delay,
+                })
+                logger.warning(
+                    "transient model error (%s), retrying in %.1fs (%d/%d)",
+                    code, delay, attempt + 1, self.max_model_retries,
+                )
+                self._sleep(delay)
+                self._checkpoint(revision)
+
+    def _timeout_result(self, step, out=None, screenshot=None, screenshot_path=None) -> StepResult:
+        from PIL import Image
+        from .action import ActionOutput
+
+        assert self._session is not None
+        if out is None:
+            out = ActionOutput(
+                action=Action(type=ACTION_WAIT), raw_output="",
+                action_summary="任务超时",
+            )
+        if screenshot is None:
+            screenshot = Image.new("RGB", (1, 1))
+        self._session.mark_aborted("task_timeout")
+        self._finished = True
+        self._session.record_interaction({"type": "task_timeout", "step": step})
+        return StepResult(
+            step=step, screenshot=screenshot, screenshot_path=screenshot_path,
+            prompt_text="", raw_output="", reasoning_content="",
+            action=out.action, screen_summary="", action_summary="任务超时",
+            execution_success=None, notes=["task_timeout"], usage=None,
+            reasoning_time=0.0, execution_time=0.0,
+            terminal=True, terminal_reason="task_timeout",
+        )
 
     def _checkpoint(self, revision: int | None = None) -> int | None:
         current = self.control.checkpoint(revision) if self.control else None

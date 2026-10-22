@@ -64,6 +64,12 @@ class RunResult:
     learned_memory_id: str | None = None
     learning_status: str = "disabled"
     memory_suggestions: list[dict] = field(default_factory=list)
+    reasoner: str | None = None
+    model_id: str | None = None
+    terminal_reason: str | None = None
+    started_at: float | None = None
+    finished_at: float | None = None
+    total_tokens: int = 0
 
 
 class Session:
@@ -78,8 +84,9 @@ class Session:
             summary.json       # 任务总结(任务完成或终止时写入)
     """
 
-    def __init__(self, task: Task, base_dir: Path | str):
+    def __init__(self, task: Task, base_dir: Path | str, metadata: dict[str, Any] | None = None):
         self.task = task
+        self.metadata = dict(metadata or {})
         self.dir = Path(base_dir) / task.task_id
         self.dir.mkdir(parents=True, exist_ok=True)
         self.trace_path = self.dir / "trace.jsonl"
@@ -226,6 +233,12 @@ class Session:
             answer_screenshot=self._answer_screenshot,
             used_memory_ids=self.used_memory_ids, learned_memory_id=self.learned_memory_id,
             learning_status=self.learning_status, memory_suggestions=self.memory_suggestions,
+            reasoner=self.metadata.get("reasoner"),
+            model_id=self.metadata.get("model_id"),
+            terminal_reason=self.terminal_reason,
+            started_at=self._start_ts,
+            finished_at=time.time(),
+            total_tokens=self._tokens_in + self._tokens_out,
         )
         summary_obj: dict[str, Any] = asdict(result)
         try:
@@ -255,6 +268,9 @@ class Session:
         execution_time: float = 0.0,
     ) -> None:
         line: dict[str, Any] = {
+            "task_id": self.task.task_id,
+            "model_id": self.metadata.get("model_id"),
+            "reasoner": self.metadata.get("reasoner"),
             "step": record.step,
             "action_type": record.action.type,
             "parameters": record.action.parameters,

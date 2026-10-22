@@ -60,7 +60,7 @@ def test_legacy_transport_preserves_authenticated_image_request(effort):
                     "test-key", "vision", api_mode="responses", reasoning_effort=effort,
                 ))
             output = reasoner.predict("打开设置", Image.new("RGB", (64, 64)), [])
-    assert len(requests) == 1
+        assert len(requests) == 1
     assert requests[0].extensions["timeout"]["read"] == 120
     assert output.action.type == "CLICK"
     assert output.usage == {"input_tokens": 15, "output_tokens": 5, "total_tokens": 20}
@@ -137,6 +137,7 @@ def test_legacy_http_errors_abort_without_switching_protocol(tmp_path, status_co
             device.screenshot.return_value = Image.new("RGB", (64, 64))
             result = Runner(device, reasoner, runs_dir=tmp_path).run(Task("test"))
     assert result.completed is False
-    assert len(requests) == 1
-    assert requests[0].url.path == "/v1/responses"
+    expected_requests = 2 if status_code in (429, 500) else 1
+    assert len(requests) == expected_requests
+    assert all(request.url.path == "/v1/responses" for request in requests)
     device.click.assert_not_called()

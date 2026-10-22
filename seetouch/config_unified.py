@@ -104,7 +104,7 @@ class UnifiedConfig:
             max_steps=int(os.environ.get("SEETOUCH_MAX_STEPS", "45")),
             max_consecutive_failures=int(os.environ.get("SEETOUCH_MAX_CONSECUTIVE_FAILURES", "2")),
             max_consecutive_identical_actions=int(
-                os.environ.get("SEETOUCH_MAX_CONSECUTIVE_IDENTICAL_ACTIONS", "3")
+                os.environ.get("SEETOUCH_MAX_CONSECUTIVE_IDENTICAL_ACTIONS", "5")
             ),
             max_open_misses=int(os.environ.get("SEETOUCH_MAX_OPEN_MISSES", "3")),
             action_settle_seconds=float(os.environ.get("SEETOUCH_ACTION_SETTLE_SECONDS", "1.0")),

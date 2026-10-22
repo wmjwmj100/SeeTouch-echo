@@ -13,7 +13,8 @@ from typing import Any
 
 from PIL import Image
 
-from ..core.action import ACTION_COMPLETE, ACTION_WAIT, Action, ActionOutput
+from ..core.action import ACTION_WAIT, Action, ActionOutput
+from ..core.exceptions import VLMAPIError
 from .base import StepRecord
 from .parser import ParseError, parse_model_output
 from .prompts import build_history_summary, build_system_prompt, extract_summary_fields
@@ -129,13 +130,7 @@ class GeminiReasoner:
 
         except Exception as exc:
             logger.error("gemini api call failed: %s", exc)
-            return ActionOutput(
-                action=Action(type=ACTION_COMPLETE, parameters={}),
-                raw_output=f"Error: {type(exc).__name__}: {exc}",
-                screen_summary="",
-                action_summary="API 调用失败,任务终止",
-                prompt_text=prompt_text,
-            )
+            raise VLMAPIError(f"{type(exc).__name__}: {exc}") from exc
 
         # 提取 summary 字段
         summary = extract_summary_fields(raw_output)
