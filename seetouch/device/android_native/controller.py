@@ -18,6 +18,7 @@ from typing import Tuple
 from PIL import Image
 
 from ..base import DeviceError
+from ...harness import nodes_from_rows, render_nodes
 from ...perception.screen import norm_to_pixel
 from ..android.app_index import AppIndexEntry
 from ..android.app_launcher import AppLauncher
@@ -126,32 +127,39 @@ class NativeAndroidController:
     def learn_app_from_visual(self, request: str, package: str) -> None:
         self._launcher.learn_from_visual(request, package)
 
+    def ui_elements(self, limit: int = 120) -> list[dict]:
+        """结构化控件列表（供 harness 做落点校准与界面签名）。"""
+        try:
+            rows = [str(row) for row in self._b.uiNodes()]
+        except Exception as exc:
+            logger.warning("uiNodes failed: %s", exc)
+            return []
+        width, height = self.screen_size()
+        nodes = nodes_from_rows(rows, screen=(width, height))
+        return [
+            {
+                "text": node.text,
+                "desc": node.desc,
+                "resource": node.resource,
+                "class": node.cls,
+                "bounds": node.bounds,
+                "clickable": node.clickable,
+                "scrollable": node.scrollable,
+                "editable": node.editable,
+                "focused": node.focused,
+            }
+            for node in nodes[:limit]
+        ]
+
     def ui_context(self, limit: int = 90, max_chars: int = 6000) -> str:
+        width, height = self.screen_size()
         try:
             rows = [str(row) for row in self._b.uiNodes()]
         except Exception as exc:
             logger.warning("uiNodes failed: %s", exc)
             return ""
-        width, height = self.screen_size()
-        lines: list[str] = []
-        for row in rows[:limit]:
-            parts = row.split("\t")
-            if len(parts) != 9:
-                continue
-            text, desc, resource, klass, left, top, right, bottom, flags = parts
-            try:
-                x1, y1, x2, y2 = int(left), int(top), int(right), int(bottom)
-            except ValueError:
-                continue
-            if x2 <= x1 or y2 <= y1:
-                continue
-            cx = round((x1 + x2) / 2 / width * 1000)
-            cy = round((y1 + y2) / 2 / height * 1000)
-            lines.append(
-                f'- text="{text}" desc="{desc}" id="{resource}" class="{klass}" '
-                f"center=[{cx},{cy}] bounds=[{x1},{y1},{x2},{y2}] flags={flags}"
-            )
-        return "\n".join(lines)[:max_chars]
+        nodes = nodes_from_rows(rows, screen=(width, height))[:limit]
+        return render_nodes(nodes, (width, height), limit=limit, max_chars=max_chars)
 
     # ------------------------- 内部 helpers -------------------------
 

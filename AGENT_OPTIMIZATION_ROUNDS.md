@@ -111,6 +111,34 @@ The APK multi-step baseline was worse: `进入设置，找到关于手机页面�
 - Result: the dark-theme task now continues and passes (6 steps) instead of
   falsely completing in 2 steps.
 
+## R7 — Harness 分层：观测 / 落点校准 / 账本 / 策略
+
+- Failure: the loop treated observation, change detection, coordinates and budgeting as
+  three unrelated values inside `_step_once`. A click that missed by a few dozen units
+  looked the same as a model ignoring feedback, and R4's bucket quantisation mis-judged
+  points that straddled a bucket boundary (299 vs 301 → different buckets).
+- Reference: nanoMuse's harness layering (image first, node table as an aid; tolerant
+  same-tap check; explicit idle budget; failure text fed back into the next prompt).
+  Independent implementation — no source copied (GPL-3.0 vs Apache-2.0).
+- Change:
+  - `seetouch/harness/` adds `nodes`, `observation`, `protocol`, `ledger`, `budget` and
+    `policy`: one structured observation per step, reused by prompt / trace / grounding.
+  - Both device controllers expose `ui_elements()`; `ui_context()` becomes a thin render
+    over it, so a frame is dumped once.
+  - `ground_action()` snaps a `CLICK` to the nearest actionable node centre within 60
+    normalised units and records `click_grounded` in the trace;
+    `SEETOUCH_CLICK_GROUNDING=0` disables it.
+  - `same_action()` replaces R4's bucketing with a distance comparison, and
+    `Session.consecutive_identical_actions()` now shares it.
+  - `LoopPolicy` adds the missing middle tier: nudge (2) → escalate (4) → abort
+    `idle_exhausted` (8), plus a `RunBudget` for steps / wall clock / tokens.
+- Tests: `tests/unit/test_harness_*.py` and `tests/unit/test_runner_grounding.py`
+  (59 new tests); full suite 284 passed / 1 skipped.
+- Result: **not yet benchmarked on a device.** Behaviour defaults match the pre-R7 loop
+  (same nudge threshold and wording, idle budget placed after the existing
+  5-identical-action guard), so task outcomes should not shift until a device run with
+  grounding enabled vs disabled is compared. See `docs/harness-design.md`.
+
 ## Final Complex-Suite Result
 
 Final code, same three tasks:

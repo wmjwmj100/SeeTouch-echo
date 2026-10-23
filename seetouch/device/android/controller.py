@@ -6,13 +6,13 @@
 from __future__ import annotations
 
 import logging
-import re
 import time
 from typing import Tuple
 
 from PIL import Image
 
 from ..base import DeviceError
+from ...harness import nodes_from_elements, nodes_from_xml, render_nodes
 from ...perception.screen import norm_to_pixel
 from .app_index import AppListJsonSource
 from .app_launcher import AppLauncher
@@ -132,60 +132,41 @@ class AndroidController:
         """转给 AppLauncher 写入 learned cache。"""
         self._launcher.learn_from_visual(request, package)
 
-    def ui_context(self, limit: int = 90, max_chars: int = 6000) -> str:
-        """Compact accessibility tree for model grounding (PC uiautomator2 path)."""
-        import xml.etree.ElementTree as ET
+    def ui_elements(self, limit: int = 120) -> list[dict]:
+        """结构化控件列表（供 harness 做落点校准与界面签名）。
 
+        与 ``ui_context`` 的区别：这里返回原始字段，渲染与截断交给调用方，
+        这样同一帧数据可以被 prompt、trace 和点击校准复用，不必重复 dump。
+        """
         try:
-            root = ET.fromstring(self._d.dump_hierarchy(compressed=True))
+            xml_text = self._d.dump_hierarchy(compressed=True)
         except Exception as exc:
             logger.warning("dump_hierarchy failed: %s", exc)
-            return ""
+            return []
         width, height = self.screen_size()
-        bounds_re = re.compile(r"\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]")
-        lines: list[str] = []
-        seen: set[str] = set()
-        for node in root.iter("node"):
-            if len(lines) >= limit:
-                break
-            if node.get("package") == "com.android.systemui":
-                continue
-            text = _clean(node.get("text"))
-            desc = _clean(node.get("content-desc"))
-            resource = node.get("resource-id") or ""
-            clickable = node.get("clickable") == "true"
-            scrollable = node.get("scrollable") == "true"
-            editable = node.get("class", "").endswith("EditText") or node.get("editable") == "true"
-            if not (text or desc or clickable or scrollable or editable):
-                continue
-            match = bounds_re.search(node.get("bounds", ""))
-            if not match:
-                continue
-            x1, y1, x2, y2 = map(int, match.groups())
-            if x2 <= x1 or y2 <= y1:
-                continue
-            cx = round((x1 + x2) / 2 / width * 1000)
-            cy = round((y1 + y2) / 2 / height * 1000)
-            flags = []
-            if clickable:
-                flags.append("click")
-            if scrollable:
-                flags.append("scroll")
-            if editable:
-                flags.append("edit")
-            if node.get("focused") == "true":
-                flags.append("focus")
-            line = (
-                f'- text="{text}" desc="{desc}" id="{resource.rsplit("/", 1)[-1]}" '
-                f'class="{node.get("class", "").rsplit(".", 1)[-1]}" '
-                f'center=[{cx},{cy}] bounds=[{x1},{y1},{x2},{y2}] '
-                f'flags={",".join(flags) or "-"}'
-            )
-            if line in seen:
-                continue
-            seen.add(line)
-            lines.append(line)
-        return "\n".join(lines)[:max_chars]
+        nodes = nodes_from_xml(xml_text, screen=(width, height), limit=limit)
+        return [
+            {
+                "text": node.text,
+                "desc": node.desc,
+                "resource": node.resource,
+                "class": node.cls,
+                "bounds": node.bounds,
+                "clickable": node.clickable,
+                "scrollable": node.scrollable,
+                "editable": node.editable,
+                "focused": node.focused,
+                "package": node.package,
+            }
+            for node in nodes
+        ]
+
+    def ui_context(self, limit: int = 90, max_chars: int = 6000) -> str:
+        """Compact accessibility tree for model grounding (PC uiautomator2 path)."""
+        width, height = self.screen_size()
+        elements = self.ui_elements(limit=max(limit, 1))
+        nodes = nodes_from_elements(elements, screen=(width, height), limit=limit)
+        return render_nodes(nodes, (width, height), limit=limit, max_chars=max_chars)
 
     # ------------------------- 内部 helpers -------------------------
 

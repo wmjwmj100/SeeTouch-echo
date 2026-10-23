@@ -113,6 +113,14 @@ def _cmd_run(args: argparse.Namespace, settings: AppSettings) -> int:
             if float(os.environ.get("SEETOUCH_TASK_TIMEOUT", "0")) > 0 else None
         ),
         max_model_retries=int(os.environ.get("SEETOUCH_MAX_MODEL_RETRIES", "1")),
+        # harness 升级项（见 docs/harness-design.md）
+        max_idle_steps=int(os.environ.get("SEETOUCH_MAX_IDLE_STEPS", "8")),
+        enable_click_grounding=os.environ.get("SEETOUCH_CLICK_GROUNDING", "1") not in ("0", "false", "no"),
+        click_grounding_radius=float(os.environ.get("SEETOUCH_CLICK_GROUNDING_RADIUS", "60")),
+        max_tokens=(
+            int(os.environ["SEETOUCH_MAX_TOKENS"])
+            if int(os.environ.get("SEETOUCH_MAX_TOKENS", "0")) > 0 else None
+        ),
     )
 
     task = Task(instruction=args.instruction, max_steps=max_steps)

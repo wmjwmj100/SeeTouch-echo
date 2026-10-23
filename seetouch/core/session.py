@@ -12,6 +12,7 @@ from typing import Any
 from PIL import Image
 
 from ..core.action import Action, ActionOutput
+from ..harness.ledger import same_action
 from ..reasoning.base import StepRecord
 from .task import Task
 from .outcome import failure_code
@@ -196,15 +197,18 @@ class Session:
         return count
 
     def consecutive_identical_actions(self) -> int:
-        """末尾连续多少步动作完全相同(action.type + parameters)。"""
+        """末尾连续多少步动作相同（坐标按手指宽度容差比较）。
+
+        原实现把坐标向下取整到 20 的桶里再比字符串，跨桶边界时会漏判
+        （例如 299 与 301 只差 2，却落进 280 和 300 两个桶）。这里改用
+        :func:`seetouch.harness.ledger.same_action` 的距离比较，与账本共用一套判定。
+        """
         if not self.history:
             return 0
-        last = self.history[-1]
-        last_key = _action_key(last.action)
+        last = self.history[-1].action
         count = 0
         for rec in reversed(self.history):
-            key = _action_key(rec.action)
-            if key == last_key:
+            if same_action(last.type, last.parameters, rec.action.type, rec.action.parameters):
                 count += 1
             else:
                 break
@@ -304,20 +308,3 @@ class Session:
             self._pending_interactions.clear()
         except Exception as exc:
             logger.warning("append trace failed: %s", exc)
-
-
-def _quantize(value: Any, step: int = 20) -> int:
-    return int(value) // step * step
-
-
-def _action_key(action: Action) -> tuple[str, str]:
-    params = dict(action.parameters)
-    if action.type == "CLICK" and isinstance(params.get("point"), (list, tuple)):
-        x, y = params["point"][:2]
-        params["point"] = [_quantize(x), _quantize(y)]
-    elif action.type == "SCROLL":
-        for key in ("start_point", "end_point"):
-            point = params.get(key)
-            if isinstance(point, (list, tuple)) and len(point) >= 2:
-                params[key] = [_quantize(point[0]), _quantize(point[1])]
-    return action.type, json.dumps(params, sort_keys=True, ensure_ascii=False)
