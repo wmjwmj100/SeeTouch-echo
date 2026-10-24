@@ -227,6 +227,7 @@ tests/              # 当前维护的 Python 测试入口
 | 动作 | 参数 | 含义 |
 |---|---|---|
 | `CLICK` | `{"point": [x, y]}` | 点击 |
+| `LONG_PRESS` | `{"point": [x, y]}` | 长按（约 800 ms），用于上下文菜单/应用信息等 |
 | `TYPE` | `{"text": "..."}` | 输入文本 |
 | `SCROLL` | `{"start_point": [x, y], "end_point": [x, y]}` | 滑动 |
 | `OPEN` | `{"app_name": "设置"}` | 按本机显示名启动应用 |
