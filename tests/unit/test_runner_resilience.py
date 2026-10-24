@@ -40,7 +40,7 @@ def test_task_timeout_is_terminal_and_classified(tmp_path):
     assert result.terminal
     assert result.terminal_reason == "task_timeout"
     runner.session.summarize()
-    summary = json.loads((tmp_path / task.task_id / "summary.json").read_text())
+    summary = json.loads((tmp_path / task.task_id / "summary.json").read_text(encoding="utf-8"))
     assert summary["completed"] is False
     assert summary["reason_code"] == "timeout"
 
@@ -59,9 +59,9 @@ def test_transient_api_error_retries_then_succeeds(tmp_path):
     result = runner.run(task)
     assert result.completed is True
     assert reasoner.predict.call_count == 2
-    interactions = (tmp_path / task.task_id / "interactions.jsonl").read_text()
+    interactions = (tmp_path / task.task_id / "interactions.jsonl").read_text(encoding="utf-8")
     assert '"type": "model_retry"' in interactions
-    trace = json.loads((tmp_path / task.task_id / "trace.jsonl").read_text().splitlines()[0])
+    trace = json.loads((tmp_path / task.task_id / "trace.jsonl").read_text(encoding="utf-8").splitlines()[0])
     assert trace["task_id"] == "retry-task"
     assert trace["model_id"] == "vision-test"
     assert trace["reasoner"] == "MagicMock"
