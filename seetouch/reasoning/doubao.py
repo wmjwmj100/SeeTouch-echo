@@ -32,7 +32,7 @@ DEFAULT_MODEL_ID = "doubao-seed-1-6-vision-250815"
 #   "enabled"  - 总是思考,慢、贵,但准确率高
 # 注意:doubao-seed-1-6-vision-250815 不支持 "auto",其他模型可能支持
 THINKING_MODES = {"disabled", "enabled", "auto"}
-DEFAULT_THINKING_MODE = "enabled"
+DEFAULT_THINKING_MODE = "disabled"  # 默认不思考：更快更省
 
 
 @dataclass
