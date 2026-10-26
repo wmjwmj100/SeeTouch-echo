@@ -43,7 +43,7 @@ def test_config_default_model():
     """测试默认模型配置。"""
     config = GeminiConfig(api_key="test-key")
     assert config.model_id == "gemini-3.1-flash-lite"
-    assert config.history_window == 8
+    assert config.history_window == 0  # 改为按 64k 预算压缩，不再固定保留 8 步
 
 
 def test_config_custom_params():

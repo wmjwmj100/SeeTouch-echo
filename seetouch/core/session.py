@@ -71,6 +71,7 @@ class RunResult:
     started_at: float | None = None
     finished_at: float | None = None
     total_tokens: int = 0
+    total_cached_tokens: int = 0
 
 
 class Session:
@@ -98,6 +99,7 @@ class Session:
         self._start_ts: float = time.time()
         self._tokens_in: int = 0
         self._tokens_out: int = 0
+        self._cached_tokens: int = 0
         self._pending_interactions: list[dict[str, Any]] = []
         self._screenshots: dict[int, Path] = {}
         self._answer = ""
@@ -252,6 +254,7 @@ class Session:
             started_at=self._start_ts,
             finished_at=time.time(),
             total_tokens=self._tokens_in + self._tokens_out,
+            total_cached_tokens=self._cached_tokens,
         )
         summary_obj: dict[str, Any] = asdict(result)
         try:
@@ -270,6 +273,7 @@ class Session:
             return
         self._tokens_in += int(usage.get("input_tokens") or 0)
         self._tokens_out += int(usage.get("output_tokens") or 0)
+        self._cached_tokens += int(usage.get("cached_tokens") or 0)
 
     def _append_trace(
         self,

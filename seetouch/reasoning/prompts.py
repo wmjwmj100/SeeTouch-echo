@@ -18,14 +18,10 @@ from typing import Any
 from .base import StepRecord
 
 
-SYSTEM_PROMPT_TEMPLATE = """\
+# 静态前缀：变量全部移到末尾，保证每一步发给模型的这段字节完全相同，
+# provider 的 prefix cache（OpenAI/DeepSeek 自动缓存、Gemini 隐式缓存）才能命中。
+SYSTEM_PROMPT_STATIC = """\
 你是移动端 GUI Agent。根据用户任务、历史动作和当前手机截图,只决定当前这一步应该执行的一个动作。
-
-用户任务:
-{instruction}
-
-历史动作摘要:
-{history}
 
 规则:
 1. 只能输出当前截图下的下一步动作,不要输出多步计划。
@@ -133,14 +129,47 @@ few-shot 示例(仅用于理解格式,实际输出必须根据当前截图重新
 
 请只输出一个 JSON 对象,不要 Markdown,不要解释,不要输出多余文本。
 """
+# 静态串里原来用 {{ }} 转义，现在改为字面大括号
+SYSTEM_PROMPT_STATIC = SYSTEM_PROMPT_STATIC.replace("{{", "{").replace("}}", "}")
+
+# 动态段：任务 + 记忆/用户补充 + 历史 + 观测。顺序固定，越靠前越稳定。
+USER_PROMPT_TEMPLATE = """\
+用户任务:
+{instruction}
+{extra}
+历史动作摘要:
+{history}
+"""
+
+
+def static_system_prompt() -> str:
+    """每一步都完全相同的系统前缀（用于前缀缓存）。"""
+    return SYSTEM_PROMPT_STATIC
+
+
+def build_user_block(
+    instruction: str,
+    history_text: str,
+    *,
+    extra: str = "",
+    pinned_inputs: str = "",
+) -> str:
+    """拼动态段。``pinned_inputs`` 是用户明确给出的补充，永远放在历史之前。"""
+    blocks: list[str] = []
+    if extra.strip():
+        blocks.append(extra.strip())
+    if pinned_inputs.strip():
+        blocks.append(pinned_inputs.strip())
+    return USER_PROMPT_TEMPLATE.format(
+        instruction=instruction.strip(),
+        extra=("\n" + "\n".join(blocks) + "\n") if blocks else "",
+        history=history_text.strip() if history_text.strip() else "无",
+    )
 
 
 def build_system_prompt(instruction: str, history_text: str) -> str:
-    """填充 system prompt 模板。"""
-    return SYSTEM_PROMPT_TEMPLATE.format(
-        instruction=instruction.strip(),
-        history=history_text.strip() if history_text.strip() else "无",
-    )
+    """兼容旧接口：静态前缀 + 动态段拼成一段文本。"""
+    return static_system_prompt() + "\n" + build_user_block(instruction, history_text)
 
 
 def build_history_summary(history: list[StepRecord], n_recent: int = 8) -> str:
