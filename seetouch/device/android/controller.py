@@ -20,6 +20,9 @@ from .app_launcher import AppLauncher
 
 logger = logging.getLogger(__name__)
 
+# Android 系统默认长按阈值约 500ms,留出余量;与 on-device 端保持一致。
+LONG_PRESS_DURATION_S = 0.8
+
 
 class AndroidController:
     """uiautomator2 驱动的 Android DeviceController 实现。"""
@@ -83,6 +86,11 @@ class AndroidController:
         x, y = norm_to_pixel(x_norm, y_norm, self.screen_size())
         logger.debug("click norm=(%s,%s) px=(%s,%s)", x_norm, y_norm, x, y)
         self._d.click(x, y)
+
+    def long_press(self, x_norm: int, y_norm: int) -> None:
+        x, y = norm_to_pixel(x_norm, y_norm, self.screen_size())
+        logger.debug("long_press norm=(%s,%s) px=(%s,%s)", x_norm, y_norm, x, y)
+        self._d.long_click(x, y, duration=LONG_PRESS_DURATION_S)
 
     def type_text(self, text: str) -> None:
         # u2 在焦点输入框上 set_text 原生支持中文(走 atx-agent 调 UiAutomator)

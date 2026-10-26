@@ -54,7 +54,7 @@
 |---|---|---|
 | `harness/nodes.py` | 节点模型与多来源归一化 | `UiNode`、`nodes_from_xml/rows/elements`、`render_nodes`、`nodes_signature` |
 | `harness/observation.py` | 一帧观测、签名、落点校准 | `Observation`、`build_observation` |
-| `harness/protocol.py` | 动作与观测对齐 | `ground_action`、`validate_action` |
+| `harness/protocol.py` | 动作与观测对齐（CLICK / LONG_PRESS 落点吸附、诊断） | `ground_action`、`validate_action` |
 | `harness/ledger.py` | 进度账本、容差去重 | `ProgressLedger`、`StepEntry`、`same_action` |
 | `harness/budget.py` | 三维预算 | `RunBudget` |
 | `harness/policy.py` | 提醒/升级/终止阶梯 | `LoopPolicy`、`LoopHint` |
@@ -89,7 +89,8 @@
 修改留痕：trace 里写 `click_grounded` 事件（from/to/命中控件），步骤备注里也带一行，
 所以"模型想点哪、实际点了哪"永远可查。可用 `SEETOUCH_CLICK_GROUNDING=0` 关闭。
 
-边界：只对 `CLICK` 生效；`SCROLL` 的起止点不吸附（滑动方向是意图的一部分，不该被改）。
+边界：只对 `CLICK` / `LONG_PRESS` 生效（两者都作用于一个点，打空的方式一样）；
+`SCROLL` 的起止点不吸附——滑动方向是意图的一部分，不该被改。
 
 ### 3.4 容差去重：距离比较而不是分桶
 

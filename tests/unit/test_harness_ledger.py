@@ -115,3 +115,18 @@ def test_reset_clears_entries():
     ledger.record(_click(1, 100))
     ledger.reset()
     assert len(ledger) == 0 and ledger.last is None
+
+
+def test_long_press_jitter_is_treated_as_the_same_action():
+    assert same_action(
+        "LONG_PRESS", {"point": [500, 290]}, "LONG_PRESS", {"point": [503, 292]}
+    )
+    assert not same_action(
+        "LONG_PRESS", {"point": [500, 290]}, "LONG_PRESS", {"point": [500, 400]}
+    )
+
+
+def test_click_and_long_press_are_different_actions():
+    assert not same_action(
+        "CLICK", {"point": [500, 290]}, "LONG_PRESS", {"point": [500, 290]}
+    )

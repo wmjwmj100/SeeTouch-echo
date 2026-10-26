@@ -14,11 +14,12 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Sequence
 
-from ..core.action import ACTION_CLICK, ACTION_SCROLL, Action
+from ..core.action import ACTION_CLICK, ACTION_LONG_PRESS, ACTION_SCROLL, Action
 from .nodes import UiNode
 from .observation import DEFAULT_GROUNDING_RADIUS, Observation
 
-POINT_ACTIONS = (ACTION_CLICK, ACTION_SCROLL)
+# 需要瞄准的动作：点击与长按都作用于一个点，落点偏了同样会打空
+POINT_ACTIONS = (ACTION_CLICK, ACTION_LONG_PRESS, ACTION_SCROLL)
 
 
 @dataclass(frozen=True)
@@ -49,7 +50,7 @@ def ground_action(
     """把点击类动作的落点对齐到当前界面的可点控件。"""
     if not enabled or observation is None or not observation.has_nodes:
         return GroundingResult(action=action)
-    if action.type != ACTION_CLICK:
+    if action.type not in (ACTION_CLICK, ACTION_LONG_PRESS):
         return GroundingResult(action=action)
 
     point = action.parameters.get("point")
@@ -90,15 +91,16 @@ def validate_action(action: Action, observation: Observation | None = None) -> l
     """
     problems: list[str] = []
     point = action.parameters.get("point")
-    if action.type == ACTION_CLICK:
+    if action.type in (ACTION_CLICK, ACTION_LONG_PRESS):
+        prefix = "click" if action.type == ACTION_CLICK else "long_press"
         if not (isinstance(point, (list, tuple)) and len(point) == 2):
-            return ["click_without_point"]
+            return [f"{prefix}_without_point"]
         x, y = float(point[0]), float(point[1])
         if not (0 <= x <= 1000 and 0 <= y <= 1000):
             problems.append("point_out_of_range")
         if observation is not None and observation.has_nodes:
             if not any(n.contains((x, y), observation.screen_size) for n in observation.actionable_nodes):
-                problems.append("click_on_empty_area")
+                problems.append(f"{prefix}_on_empty_area")
     elif action.type == ACTION_SCROLL:
         for key in ("start_point", "end_point"):
             value = action.parameters.get(key)

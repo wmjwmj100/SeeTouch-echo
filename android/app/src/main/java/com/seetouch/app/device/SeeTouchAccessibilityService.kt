@@ -233,6 +233,16 @@ class SeeTouchAccessibilityService : AccessibilityService() {
         )
     }
 
+    /** 长按:在原地保持按压 LONG_PRESS_DURATION_MS,触发系统长按。 */
+    fun longPress(x: Float, y: Float): Boolean {
+        val path = Path().apply { moveTo(x, y) }
+        return dispatchGestureBlocking(
+            GestureDescription.Builder()
+                .addStroke(GestureDescription.StrokeDescription(path, 0, LONG_PRESS_DURATION_MS))
+                .build()
+        )
+    }
+
     fun swipe(x1: Float, y1: Float, x2: Float, y2: Float, durationMs: Long): Boolean {
         val path = Path().apply {
             moveTo(x1, y1)
@@ -334,6 +344,7 @@ class SeeTouchAccessibilityService : AccessibilityService() {
     companion object {
         private const val TAG = "SeeTouchA11y"
         private const val TAP_DURATION_MS = 80L
+        private const val LONG_PRESS_DURATION_MS = 800L
         private const val SCREENSHOT_TIMEOUT_S = 5L
         private const val GESTURE_TIMEOUT_S = 5L
 

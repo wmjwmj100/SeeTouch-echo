@@ -86,6 +86,12 @@ class NativeAndroidController:
         if not self._b.click(x, y):
             raise DeviceError(f"click({x},{y}) gesture dispatch failed")
 
+    def long_press(self, x_norm: int, y_norm: int) -> None:
+        x, y = norm_to_pixel(x_norm, y_norm, self.screen_size())
+        logger.debug("long_press norm=(%s,%s) px=(%s,%s)", x_norm, y_norm, x, y)
+        if not self._b.longClick(x, y):
+            raise DeviceError(f"long_press({x},{y}) gesture dispatch failed")
+
     def type_text(self, text: str) -> None:
         if not text:
             return

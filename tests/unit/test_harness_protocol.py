@@ -1,6 +1,6 @@
 """动作协议层：落点吸附与诊断。"""
 
-from seetouch.core.action import ACTION_BACK, ACTION_CLICK, Action
+from seetouch.core.action import ACTION_BACK, ACTION_CLICK, ACTION_LONG_PRESS, Action
 from seetouch.harness.observation import build_observation
 from seetouch.harness.protocol import ground_action, validate_action
 
@@ -60,3 +60,15 @@ def test_validate_reports_empty_area_and_range():
 
 def test_validate_passes_for_grounded_click():
     assert validate_action(Action(ACTION_CLICK, {"point": [500, 250]}), _observation()) == []
+
+
+def test_long_press_is_grounded_like_a_click():
+    result = ground_action(Action(ACTION_LONG_PRESS, {"point": [510, 305]}), _observation())
+    assert result.moved
+    assert result.action.parameters["point"] == [500, 250]
+
+
+def test_validate_reports_long_press_without_point():
+    assert validate_action(Action(ACTION_LONG_PRESS, {}), _observation()) == [
+        "long_press_without_point"
+    ]

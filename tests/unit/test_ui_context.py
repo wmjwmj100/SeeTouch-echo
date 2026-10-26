@@ -54,7 +54,7 @@ def test_runner_appends_ui_context_to_reasoner_instruction(tmp_path):
     assert result.completed
     assert "当前界面控件" in seen["instruction"]
     assert "center=[500,200]" in seen["instruction"]
-    trace = (tmp_path / "ui-context" / "trace.jsonl").read_text()
+    trace = (tmp_path / "ui-context" / "trace.jsonl").read_text(encoding="utf-8")
     assert '"ui_context": "- text=' in trace
 
 
@@ -76,7 +76,7 @@ def test_runner_flags_unchanged_screen_on_next_step(tmp_path):
     assert result.completed
     assert "当前界面与之前 2 步相同" in instructions[1]
     assert "任务进度：已完成 1 步" in instructions[1]
-    trace = (tmp_path / "no-change" / "trace.jsonl").read_text()
+    trace = (tmp_path / "no-change" / "trace.jsonl").read_text(encoding="utf-8")
     assert '"screen_unchanged_streak": 2' in trace
 
 
@@ -132,7 +132,7 @@ def test_multi_step_task_rejects_completion_right_after_open(tmp_path):
     )
     assert result.completed is False
     assert result.aborted_reason == "premature_completion"
-    trace = (tmp_path / "premature" / "trace.jsonl").read_text()
+    trace = (tmp_path / "premature" / "trace.jsonl").read_text(encoding="utf-8")
     assert "拒绝过早完成" in trace
 
 
