@@ -17,6 +17,12 @@ Apache-2.0，这里只重写设计、没有复制其源码，具体实现与接�
 from __future__ import annotations
 
 from .budget import RunBudget
+from .context import (
+    ContextBudget,
+    PinnedInputs,
+    compact_history,
+    estimate_tokens,
+)
 from .ledger import (
     DEFAULT_POINT_TOLERANCE,
     ProgressLedger,
@@ -50,7 +56,11 @@ __all__ = [
     "GroundingResult",
     "LoopHint",
     "LoopPolicy",
+    "ContextBudget",
     "Observation",
+    "PinnedInputs",
+    "compact_history",
+    "estimate_tokens",
     "ProgressLedger",
     "RunBudget",
     "StepEntry",
