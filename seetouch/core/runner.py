@@ -45,6 +45,7 @@ from ..device.base import (
 )
 from ..harness import (
     DEFAULT_GROUNDING_RADIUS,
+    PinnedInputs,
     LoopPolicy,
     Observation,
     ProgressLedger,
@@ -132,6 +133,7 @@ class Runner:
         self.enable_click_grounding = enable_click_grounding
         self.click_grounding_radius = click_grounding_radius
         self._interaction_context: list[str] = []
+        self._pinned_inputs = PinnedInputs()
 
         # harness 组件：观测 / 账本 / 预算 / 策略（见 seetouch.harness）
         self._observation: Observation | None = None
@@ -171,6 +173,7 @@ class Runner:
             },
         )
         self._interaction_context = []
+        self._pinned_inputs.clear()
         if self.control:
             self.control.event_sink = self._record_control_event
         self._current_step = 0
@@ -289,8 +292,9 @@ class Runner:
                     instruction += memory_prompt(self.memory_store, session.used_memory_ids)
                 except (OSError, ValueError, KeyError, TypeError):
                     pass
-            if self._interaction_context:
-                instruction += "\n\n用户补充（以用户回答为准）：\n" + "\n".join(self._interaction_context)
+            if len(self._pinned_inputs):
+                # 用户明确给出的补充：不参与历史压缩，永远原样出现在指令里
+                instruction += "\n\n" + self._pinned_inputs.render()
             remaining = max(0, task.max_steps - step + 1)
             instruction += f"\n\n任务进度：已完成 {step - 1} 步，剩余最多 {remaining} 步。"
             if ui_context:
@@ -418,9 +422,9 @@ class Runner:
             if out.action.type == ACTION_ASK_USER and reply.get("status") == "answered":
                 answer = str(reply.get("answer", "")).strip()
                 if answer:
-                    self._interaction_context.append(
-                        f"问题：{out.action.parameters['question']}\n回答：{answer}"
-                    )
+                    pinned = f"问题：{out.action.parameters['question']}\n回答：{answer}"
+                    self._interaction_context.append(pinned)
+                    self._pinned_inputs.add(pinned)
                     session.record_interaction({"type": "user_answer", "step": step,
                                                 "question": out.action.parameters["question"],
                                                 "answer": answer})
@@ -713,6 +717,11 @@ class Runner:
     def budget(self) -> RunBudget:
         """本次任务的预算账本。"""
         return self._budget
+
+    @property
+    def pinned_inputs(self) -> PinnedInputs:
+        """用户明确给出的补充（永不压缩）。"""
+        return self._pinned_inputs
 
     @property
     def observation(self) -> Observation | None:
