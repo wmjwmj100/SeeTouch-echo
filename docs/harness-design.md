@@ -145,3 +145,50 @@ repeated  ≥ 2   → nudge     "同样动作已经 N 次"
 2. 真机回归，量化吸附对点击成功率的影响（对比开启/关闭）；
 3. 把 `ProgressLedger` 接进 `summary.json`，让评测脚本能按终止原因聚合；
 4. 工具调用协议化（把 JSON action 换成显式 tool call），需要先改三个 reasoning adapter。
+
+---
+
+## 8. 上下文与成本（R8）
+
+### 8.1 前缀缓存
+
+每条请求现在是两条消息：
+
+```
+messages[0] = system  ← SYSTEM_PROMPT_STATIC，逐字节稳定（规则/schema/few-shot）
+messages[1] = user    ← 任务 + 用户补充 + 历史 + 观测 + 截图
+```
+
+只要静态串不掺变量，provider 的 prefix cache（OpenAI / DeepSeek 自动缓存、Gemini 隐式
+缓存）就能命中第一段。适配器把命中量写进 `usage.cached_tokens`，`Session` 累计成
+`total_cached_tokens` 并写进 `summary.json`——所以"缓存有没有生效"是可测的，不靠感觉。
+
+### 8.2 64k 预算压缩
+
+`history_window=8` 的固定窗口被替换成预算驱动：
+
+| 参数 | 默认 | 含义 |
+|---|---|---|
+| `SEETOUCH_CONTEXT_TOKENS` | 64000 | 上下文总预算 |
+| 输出预留 | 2048 | 给模型回复留的额度 |
+| 压缩触发 | 60% | 超过预算 60% 开始压缩 |
+| 最近保留 | 12 步 | 更早的步骤压成摘要 |
+| 最小保留 | 4 步 | 无论如何保留的最近步数 |
+
+压缩是确定性的（不调模型）：动作分布、到过的界面、失败记录。同样的历史永远得到
+同样的摘要，方便复现和 diff。
+
+### 8.3 用户输入保真
+
+`PinnedInputs` 单独维护"用户明确说过的话"（ASK_USER 的回答等），渲染成
+「用户明确要求（必须遵守）」块，位置在进度和当前界面之前。它**不进入历史**，因此
+压缩逻辑永远碰不到它。
+
+### 8.4 成本相关的默认值
+
+- 截图默认 JPEG q=85（原 PNG）；
+- 思考模式默认关闭（`SEETOUCH_THINKING_MODE=disabled`）；
+- 观测与 prompt 共用一帧数据（R7 起）。
+
+> 注意：以上改动的收益（token 下降、缓存命中率）**尚未在真机任务上量化**，需要跑一轮
+> 对比 E2E 才能写进结论。

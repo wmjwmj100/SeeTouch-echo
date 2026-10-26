@@ -204,3 +204,26 @@ The implemented rounds align with these mechanisms:
   and latency are too high for SeeTouch's loop.
 - **Model-driven history folding** (MemGUI): promising for tasks beyond ~30
   steps, but it changes the action protocol and needs its own regression suite.
+
+## R8 — 上下文成本：前缀缓存 / 64k 压缩 / 用户输入保真
+
+- Failure: every step rebuilt one prompt string with the task at the top, so no prefix was
+  ever stable across steps and provider prefix caching could never hit. History was capped
+  at 8 steps regardless of how much context the model could take, and ASK_USER answers
+  lived only inside the current instruction, where a long task could push them out.
+- Reference: the context handling typical of Codex/Hermes-style agents (stable prefix,
+  budget-driven compaction, user instructions pinned). Independent implementation.
+- Change:
+  - `SYSTEM_PROMPT_STATIC` split out of the template; adapters send it as `messages[0]`,
+    with task/history/observation in `messages[1]`.
+  - `harness/context.py`: token estimator, `ContextBudget` (64k, 2k output reserve, 60%
+    trigger), deterministic `compact_history` (recent 12 verbatim, older digested into
+    action distribution / screens / failures), `PinnedInputs` for user answers.
+  - `usage.cached_tokens` recorded and accumulated into `RunResult.total_cached_tokens`.
+  - Screenshots default to JPEG q=85; thinking defaults to `disabled`.
+- Tests: `tests/unit/test_context_compression.py`, `test_prefix_cache.py`,
+  `test_runner_pinned_inputs.py`, `test_screen_encoding.py` (28 cases);
+  full suite 326 passed / 1 skipped.
+- Result: **not yet measured on device.** The expected effect is a lower per-step token
+  bill (cache hits + JPEG) and no loss of user instructions in long tasks; both need an
+  A/B E2E run before being quoted as numbers.
