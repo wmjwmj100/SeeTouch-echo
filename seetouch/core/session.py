@@ -312,7 +312,7 @@ def _quantize(value: Any, step: int = 20) -> int:
 
 def _action_key(action: Action) -> tuple[str, str]:
     params = dict(action.parameters)
-    if action.type == "CLICK" and isinstance(params.get("point"), (list, tuple)):
+    if action.type in ("CLICK", "LONG_PRESS") and isinstance(params.get("point"), (list, tuple)):
         x, y = params["point"][:2]
         params["point"] = [_quantize(x), _quantize(y)]
     elif action.type == "SCROLL":

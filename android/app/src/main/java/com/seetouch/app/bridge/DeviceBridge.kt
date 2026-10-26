@@ -60,6 +60,10 @@ object DeviceBridge {
         service().tap(xPx.toFloat(), yPx.toFloat())
 
     @JvmStatic
+    fun longClick(xPx: Int, yPx: Int): Boolean =
+        service().longPress(xPx.toFloat(), yPx.toFloat())
+
+    @JvmStatic
     fun swipe(x1Px: Int, y1Px: Int, x2Px: Int, y2Px: Int, durationMs: Long): Boolean =
         service().swipe(
             x1Px.toFloat(), y1Px.toFloat(), x2Px.toFloat(), y2Px.toFloat(), durationMs

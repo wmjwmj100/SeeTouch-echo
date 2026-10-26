@@ -25,6 +25,7 @@ from .event_bus import (
 )
 from ..core.action import (
     ACTION_CLICK,
+    ACTION_LONG_PRESS,
     ACTION_COMPLETE,
     ACTION_OPEN,
     ACTION_BACK,
@@ -751,7 +752,7 @@ class Runner:
     def _premature_completion(self, task, session) -> bool:
         if not _instruction_is_multi_step(task.instruction):
             return False
-        meaningful = {"CLICK", "TYPE", "SCROLL", "BACK"}
+        meaningful = {"CLICK", "LONG_PRESS", "TYPE", "SCROLL", "BACK"}
         return not any(record.action.type in meaningful for record in session.history)
 
     def _observe_screen_change(self, screenshot, ui_context: str) -> int:
@@ -773,6 +774,9 @@ class Runner:
         if action.type == ACTION_CLICK:
             x, y = action.parameters["point"]
             self.device.click(int(x), int(y))
+        elif action.type == ACTION_LONG_PRESS:
+            x, y = action.parameters["point"]
+            self.device.long_press(int(x), int(y))
         elif action.type == ACTION_TYPE:
             self.device.type_text(action.parameters["text"])
         elif action.type == ACTION_SCROLL:

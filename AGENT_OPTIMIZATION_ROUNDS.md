@@ -103,7 +103,7 @@ The APK multi-step baseline was worse: `进入设置，找到关于手机页面�
   (`nanomuse/phone/operator.py:317-330`); SeeTouch now applies the same principle
   to completion claims.
 - Change: for instructions with multiple action clauses, a successful `COMPLETE`
-  is rejected until at least one meaningful action (CLICK/TYPE/SCROLL/BACK) has
+  is rejected until at least one meaningful action (CLICK/LONG_PRESS/TYPE/SCROLL/BACK) has
   executed. One rejection is fed back; a second rejection aborts with
   `premature_completion` rather than reporting success.
 - Tests: `test_multi_step_task_rejects_completion_right_after_open`,
